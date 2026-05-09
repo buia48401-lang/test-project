@@ -61,3 +61,19 @@ export interface OptimizationSuggestion {
 }
 
 export const PROMPT_MAX_LENGTH = 500;
+
+export type ScoreGrade = "excellent" | "good" | "average" | "poor";
+
+export interface ScoreDimension {
+  name: string;
+  weight: number;
+  score: number;
+  feedback: string;
+}
+
+export interface PromptScore {
+  overall: number;
+  dimensions: ScoreDimension[];
+  grade: ScoreGrade;
+  suggestions: string[];
+}

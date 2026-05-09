@@ -34,9 +34,12 @@ import {
   List,
   FileText,
   Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import { cn, type GeneratedPrompt, type StyleType } from "@/lib/utils";
 import { generatePrompts } from "@/lib/promptGenerator";
+import { scorePrompt } from "@/lib/scoring";
+import { PromptCard } from "@/app/_components/PromptCard";
 import {
   getHistory,
   saveHistoryItem,
@@ -45,6 +48,13 @@ import {
   groupHistoryByDate,
   type HistoryItem,
 } from "@/lib/history";
+import {
+  exportToCSV,
+  exportToTXT,
+  downloadFile,
+  getExportFilename,
+  normalizeExportData,
+} from "@/lib/export";
 import {
   getFavorites,
   getCollections,
@@ -179,6 +189,10 @@ export default function Home() {
   const [batchExpandedIds, setBatchExpandedIds] = useState<Set<string>>(new Set());
   const [batchCopiedAll, setBatchCopiedAll] = useState(false);
 
+  /* Export dropdown states */
+  const [showSingleExport, setShowSingleExport] = useState(false);
+  const [showBatchExport, setShowBatchExport] = useState(false);
+
   const refreshHistory = useCallback(() => {
     setHistoryItems(getHistory());
   }, []);
@@ -273,23 +287,26 @@ export default function Home() {
     setTimeout(() => setBatchCopiedAll(false), 2000);
   };
 
-  const handleBatchExportCSV = async () => {
-    if (!batchResults || batchResults.length === 0) return;
-    const header = "Product Name,Platform,Type,Style,Prompt";
-    const rows: string[] = [];
-    for (const r of batchResults) {
-      const platformLabel = platforms.find((p) => p.value === r.platform)?.label ?? r.platform;
-      const typeLabel = productTypes.find((t) => t.value === r.productType)?.label ?? r.productType;
-      for (const p of r.prompts) {
-        rows.push(
-          `"${r.productName.replace(/"/g, '""')}","${platformLabel}","${typeLabel}","${p.title}","${p.prompt.replace(/"/g, '""')}"`
-        );
-      }
-    }
-    const csv = [header, ...rows].join("\n");
-    await navigator.clipboard.writeText(csv);
-    setBatchCopiedAll(true);
-    setTimeout(() => setBatchCopiedAll(false), 2000);
+  const handleExportDownload = (
+    data: GeneratedPrompt[] | GeneratedPrompt,
+    format: "csv" | "txt"
+  ) => {
+    const normalized = normalizeExportData(data);
+    const content = format === "csv" ? exportToCSV(normalized) : exportToTXT(normalized);
+    const filename = getExportFilename(data, format);
+    const mimeType = format === "csv" ? "text/csv;charset=utf-8;" : "text/plain;charset=utf-8;";
+    downloadFile(content, filename, mimeType);
+  };
+
+  const handleExportCopy = async (
+    data: GeneratedPrompt[] | GeneratedPrompt,
+    format: "csv" | "txt"
+  ) => {
+    const normalized = normalizeExportData(data);
+    const content = format === "csv" ? exportToCSV(normalized) : exportToTXT(normalized);
+    await navigator.clipboard.writeText(content);
+    setToast(`Copied as ${format.toUpperCase()}`);
+    setTimeout(() => setToast(null), 2000);
   };
 
   const toggleBatchExpanded = (productName: string) => {
@@ -872,103 +889,176 @@ Coffee Mug`;
                 </motion.div>
               )}
 
+              {/* Single Result Actions */}
+              <div className="flex items-center gap-2 mb-4">
+                <button
+                  onClick={async () => {
+                    const allText = result.prompts
+                      .map((p) => `[${p.title}]\n${p.prompt}`)
+                      .join("\n\n");
+                    await navigator.clipboard.writeText(allText);
+                    setCopiedId("all");
+                    setTimeout(() => setCopiedId(null), 2000);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                    copiedId === "all"
+                      ? "bg-green-50 text-green-600"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                  )}
+                >
+                  {copiedId === "all" ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Copied All!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy All
+                    </>
+                  )}
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSingleExport(!showSingleExport)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export
+                    <ChevronDown
+                      className={cn(
+                        "w-3.5 h-3.5 transition-transform",
+                        showSingleExport && "rotate-180"
+                      )}
+                    />
+                  </button>
+                  <AnimatePresence>
+                    {showSingleExport && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden min-w-[220px]"
+                      >
+                        <button
+                          onClick={() => {
+                            handleExportDownload(result, "csv");
+                            setShowSingleExport(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                          Export as CSV
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleExportDownload(result, "txt");
+                            setShowSingleExport(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <FileText className="w-4 h-4 text-blue-600" />
+                          Export as TXT
+                        </button>
+                        <div className="border-t border-slate-100" />
+                        <button
+                          onClick={() => {
+                            handleExportCopy(result, "csv");
+                            setShowSingleExport(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <Copy className="w-4 h-4 text-slate-500" />
+                          Copy as CSV
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleExportCopy(result, "txt");
+                            setShowSingleExport(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <Copy className="w-4 h-4 text-slate-500" />
+                          Copy as TXT
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <button
+                  onClick={handleGenerate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  Regenerate
+                </button>
+              </div>
+
               <div className="space-y-4">
                 {result.prompts.map((prompt, index) => (
-                  <motion.div
+                  <PromptCard
                     key={prompt.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.1 }}
-                    className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
-                  >
-                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center",
-                          isProStyle(prompt.style)
-                            ? "bg-emerald-50 text-emerald-600"
-                            : prompt.style === "text-enhanced"
-                              ? "bg-emerald-50 text-emerald-600"
-                              : "bg-blue-50 text-blue-600"
-                        )}>
-                          {styleIcons[prompt.style]}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-slate-900">
-                              {prompt.title}
-                            </h3>
-                            {isProStyle(prompt.style) && (
-                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded-full uppercase tracking-wide">
-                                Pro
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            {styleDescriptions[prompt.style]}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleCopy(prompt.id, prompt.prompt)}
-                          className={cn(
-                            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                            copiedId === prompt.id
-                              ? "bg-green-50 text-green-600"
-                              : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                          )}
-                        >
-                          {copiedId === prompt.id ? (
-                            <>
-                              <Check className="w-4 h-4" />
-                              Copied!
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-4 h-4" />
-                              Copy
-                            </>
-                          )}
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleFavoriteToggle(
-                              result.productName,
-                              result.platform,
-                              result.productType,
-                              prompt.style,
-                              prompt.title,
-                              prompt.prompt
-                            )
+                    prompt={prompt}
+                    originalText={prompt.prompt}
+                    platform={result.platform}
+                    productType={result.productType}
+                    index={index}
+                    copied={copiedId === prompt.id}
+                    styleIcon={styleIcons[prompt.style]}
+                    styleDescription={styleDescriptions[prompt.style]}
+                    onCopy={handleCopy}
+                    onUpdate={(id, text) => {
+                      setResult((prev) => {
+                        if (!prev) return prev;
+                        return {
+                          ...prev,
+                          prompts: prev.prompts.map((p) =>
+                            p.id === id ? { ...p, prompt: text } : p
+                          ),
+                        };
+                      });
+                    }}
+                    score={scorePrompt(
+                      prompt.prompt,
+                      result.productName,
+                      result.platform,
+                      prompt.style
+                    )}
+                    favoriteButton={
+                      <button
+                        onClick={() =>
+                          handleFavoriteToggle(
+                            result.productName,
+                            result.platform,
+                            result.productType,
+                            prompt.style,
+                            prompt.title,
+                            prompt.prompt
+                          )
+                        }
+                        className="p-2 rounded-lg transition-all hover:bg-red-50"
+                        aria-label="Toggle favorite"
+                      >
+                        <motion.div
+                          whileTap={{ scale: 0.8 }}
+                          animate={
+                            getFavoriteId(result.productName, prompt.style)
+                              ? { scale: [1, 1.2, 1] }
+                              : {}
                           }
-                          className="p-2 rounded-lg transition-all hover:bg-red-50"
-                          aria-label="Toggle favorite"
+                          transition={{ duration: 0.3 }}
                         >
-                          <motion.div
-                            whileTap={{ scale: 0.8 }}
-                            animate={
-                              getFavoriteId(result.productName, prompt.style)
-                                ? { scale: [1, 1.2, 1] }
-                                : {}
-                            }
-                            transition={{ duration: 0.3 }}
-                          >
-                            {getFavoriteId(result.productName, prompt.style) ? (
-                              <Heart className="w-5 h-5 text-red-500 fill-red-500" />
-                            ) : (
-                              <Heart className="w-5 h-5 text-slate-400 hover:text-red-500 transition-colors" />
-                            )}
-                          </motion.div>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="px-5 py-4 bg-slate-50/50">
-                      <p className="text-sm text-slate-700 leading-relaxed font-mono">
-                        {prompt.prompt}
-                      </p>
-                    </div>
-                  </motion.div>
+                          {getFavoriteId(result.productName, prompt.style) ? (
+                            <Heart className="w-5 h-5 text-red-500 fill-red-500" />
+                          ) : (
+                            <Heart className="w-5 h-5 text-slate-400 hover:text-red-500 transition-colors" />
+                          )}
+                        </motion.div>
+                      </button>
+                    }
+                  />
                 ))}
               </div>
 
@@ -1033,18 +1123,74 @@ Coffee Mug`;
                       </>
                     )}
                   </button>
-                  <button
-                    onClick={handleBatchExportCSV}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                      batchCopiedAll
-                        ? "bg-green-50 text-green-600"
-                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                    )}
-                  >
-                    <Download className="w-4 h-4" />
-                    Export CSV
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowBatchExport(!showBatchExport)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export
+                      <ChevronDown
+                        className={cn(
+                          "w-3.5 h-3.5 transition-transform",
+                          showBatchExport && "rotate-180"
+                        )}
+                      />
+                    </button>
+                    <AnimatePresence>
+                      {showBatchExport && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden min-w-[220px]"
+                        >
+                          <button
+                            onClick={() => {
+                              handleExportDownload(batchResults, "csv");
+                              setShowBatchExport(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          >
+                            <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                            Export as CSV
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleExportDownload(batchResults, "txt");
+                              setShowBatchExport(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          >
+                            <FileText className="w-4 h-4 text-blue-600" />
+                            Export as TXT
+                          </button>
+                          <div className="border-t border-slate-100" />
+                          <button
+                            onClick={() => {
+                              handleExportCopy(batchResults, "csv");
+                              setShowBatchExport(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          >
+                            <Copy className="w-4 h-4 text-slate-500" />
+                            Copy as CSV
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleExportCopy(batchResults, "txt");
+                              setShowBatchExport(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                          >
+                            <Copy className="w-4 h-4 text-slate-500" />
+                            Copy as TXT
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
               </div>
 
@@ -1631,7 +1777,7 @@ Coffee Mug`;
             exit={{ opacity: 0, y: 20 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2"
           >
-            <Heart className="w-4 h-4 text-red-400 fill-red-400" />
+            <Check className="w-4 h-4 text-green-400" />
             {toast}
           </motion.div>
         )}

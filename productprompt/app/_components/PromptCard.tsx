@@ -14,14 +14,21 @@ import {
   Minus,
   Replace,
   Wand2,
+  Star,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
 } from "lucide-react";
 import {
   cn,
   PROMPT_MAX_LENGTH,
   type OptimizationSuggestion,
   type PromptResult,
+  type PromptScore,
 } from "@/lib/utils";
 import { analyzePrompt } from "@/lib/promptOptimizer";
+import { gradeColor, gradeLabel, gradeBarColor } from "@/lib/scoring";
 
 interface PromptCardProps {
   prompt: PromptResult;
@@ -34,6 +41,8 @@ interface PromptCardProps {
   styleDescription: string;
   onCopy: (id: string, text: string) => void;
   onUpdate: (id: string, text: string) => void;
+  score?: PromptScore;
+  favoriteButton?: React.ReactNode;
 }
 
 const severityStyles: Record<OptimizationSuggestion["severity"], string> = {
@@ -67,11 +76,14 @@ export function PromptCard({
   styleDescription,
   onCopy,
   onUpdate,
+  score,
+  favoriteButton,
 }: PromptCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(prompt.prompt);
   const [appliedIds, setAppliedIds] = useState<string[]>([]);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [showScore, setShowScore] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -171,6 +183,26 @@ export function PromptCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Score Badge */}
+          {score && !editing && (
+            <button
+              onClick={() => setShowScore((s) => !s)}
+              className={cn(
+                "flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all",
+                gradeColor(score.grade)
+              )}
+              aria-label="Toggle score details"
+            >
+              <Star className="w-3.5 h-3.5" />
+              {score.overall.toFixed(1)}
+              <ChevronDown
+                className={cn(
+                  "w-3 h-3 transition-transform",
+                  showScore && "rotate-180"
+                )}
+              />
+            </button>
+          )}
           {!editing && (
             <button
               onClick={handleStartEdit}
@@ -181,6 +213,7 @@ export function PromptCard({
               Edit
             </button>
           )}
+          {favoriteButton && !editing && favoriteButton}
           <button
             onClick={() => onCopy(prompt.id, prompt.prompt)}
             disabled={editing}
@@ -206,6 +239,120 @@ export function PromptCard({
           </button>
         </div>
       </div>
+
+      {/* Score Details Panel */}
+      <AnimatePresence>
+        {showScore && score && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="overflow-hidden border-b border-slate-100"
+          >
+            <div className="px-5 py-4 bg-slate-50/80 space-y-4">
+              {/* Overall */}
+              <div className="flex items-center gap-3">
+                <div
+                  className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                    gradeColor(score.grade)
+                  )}
+                >
+                  {score.grade === "excellent" ? (
+                    <CheckCircle className="w-5 h-5" />
+                  ) : score.grade === "poor" ? (
+                    <AlertCircle className="w-5 h-5" />
+                  ) : (
+                    <TrendingUp className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-900">
+                      {score.overall.toFixed(1)}/5.0
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs font-semibold px-2 py-0.5 rounded-full border",
+                        gradeColor(score.grade)
+                      )}
+                    >
+                      {gradeLabel(score.grade)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Overall quality score
+                  </p>
+                </div>
+              </div>
+
+              {/* Dimension Bars */}
+              <div className="space-y-2.5">
+                {score.dimensions.map((dim) => {
+                  const pct = (dim.score / 5) * 100;
+                  return (
+                    <div key={dim.name} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium text-slate-700">
+                          {dim.name}
+                        </span>
+                        <span className="text-slate-500">
+                          {dim.score.toFixed(1)}/5{" "}
+                          <span className="text-slate-400">
+                            ({Math.round(dim.weight * 100)}%)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pct}%` }}
+                          transition={{
+                            duration: 0.6,
+                            delay: 0.1,
+                            ease: "easeOut",
+                          }}
+                          className={cn(
+                            "h-full rounded-full",
+                            gradeBarColor(score.grade)
+                          )}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        {dim.feedback}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Suggestions */}
+              {score.suggestions.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Lightbulb className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-semibold text-slate-700">
+                      Suggestions
+                    </span>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {score.suggestions.map((sg, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 text-xs text-slate-600"
+                      >
+                        <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        {sg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence initial={false} mode="wait">
         {editing ? (
