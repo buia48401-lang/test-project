@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Script from "next/script";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
@@ -424,9 +425,10 @@ Coffee Mug`;
   const inputDisabled = loading || batchLoading;
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      {/* Header */}
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+    <>
+      <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        {/* Header */}
+        <header className="border-b border-slate-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
@@ -1783,6 +1785,7 @@ Coffee Mug`;
         )}
       </AnimatePresence>
     </main>
+    </>
   );
 }
 
